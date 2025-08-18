@@ -93,7 +93,7 @@ def scrape_zakupki(
 
 
 if __name__ == "__main__":
-    res = scrape_zakupki(search_str="kfjskldjf", pubdate_from=date(2024, 3, 1))
+    res = scrape_zakupki(search_str="болт", pubdate_from=date(2024, 3, 1))
 
     with open("test.csv", mode="w") as f:
         if res is not None:
