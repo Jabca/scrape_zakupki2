@@ -7,8 +7,10 @@ import urllib.parse as urlp
 import bs4
 from loguru import logger
 import pandas as pd
+from dask.delayed import delayed
 
 from scrape_zakupki2.utils import RequestSessioner
+
 
 HOME_PAGE_BASEURL = (
     (Path(__file__).parent / "links" / "home_page.txt").resolve().read_text()
@@ -58,9 +60,10 @@ def _modify_query(base_url: str, query: dict[str, str]) -> str:
     return new_url
 
 
+@delayed
 def load_num_results(
     args: load_arguments,
-) -> tuple[int | None, tuple[date, date] | None]:
+) -> tuple[int, tuple[date, date] | None]:
     url = _modify_query(
         HOME_PAGE_BASEURL,
         {
@@ -77,7 +80,7 @@ def load_num_results(
         html = getter.get_text(url=url)
     except Exception as e:
         logger.error(f"Wasn't able to load results for {args} cause of {e}")
-        return None, None
+        return -1, None
     finally:
         if "getter" in locals():
             getter.close()  # type: ignore
@@ -90,10 +93,10 @@ def load_num_results(
         return int(number), (args.pubdate_from, args.pubdate_to)
     except Exception as e:
         logger.error(f"Couldn't get number of results for {args} because of {e}")
-        return None, None
+        return -1, None
 
 
-def load_csv(args: load_arguments, pool_size: int = 4) -> pd.DataFrame | None:
+def load_csv(args: load_arguments) -> pd.DataFrame | None:
     assert args.to is not None and args.from_ is not None
     url = _modify_query(
         DOWNLOAD_BASEURL,
