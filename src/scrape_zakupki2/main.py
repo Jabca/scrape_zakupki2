@@ -1,24 +1,22 @@
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from datetime import date, timedelta
+from io import TextIOWrapper
 from typing import Any
 import pandas as pd
+import tempfile as tmpf
 
 from scrape_zakupki2.load import load_arguments, load_csv, load_num_results
 
 
-def scrape_zakupki(
-    search_str: str = "болт",
-    pubdate_to: date = date.today(),
-    pubdate_from: date = date.today() - timedelta(days=365),
-    timedelta_step: timedelta = timedelta(days=30),
-    include_fz44: bool = True,
-    include_fz223: bool = True,
-    pool_size: int = 4,
-) -> pd.DataFrame | None:
-    """
-    This function will load results for searchString into 1 dataframe. Will raise ValueError if the arguments are invalid. will return None if no data was collected
-    """
-
+def _get_load_tasks(
+    search_str: str,
+    pubdate_to: date,
+    pubdate_from: date,
+    timedelta_step: timedelta,
+    include_fz44: bool,
+    include_fz223: bool,
+    pool_size: int,
+) -> list[load_arguments]:
     if (pubdate_to - pubdate_from).days < 0:
         raise ValueError(
             f"Date's range is invalid from: {pubdate_from} is greater then to {pubdate_from}"
@@ -75,11 +73,36 @@ def scrape_zakupki(
                 left += 500
                 right += 500
 
+    return tasks
+
+
+def scrape_zakupki(
+    search_str: str = "болт",
+    pubdate_to: date = date.today(),
+    pubdate_from: date = date.today() - timedelta(days=365),
+    timedelta_step: timedelta = timedelta(days=30),
+    include_fz44: bool = True,
+    include_fz223: bool = True,
+    pool_size: int = 4,
+) -> pd.DataFrame | None:
+    """
+    This function will load results for searchString into 1 dataframe. Will raise ValueError if the arguments are invalid. will return None if no data was collected
+    """
+
+    tasks = _get_load_tasks(
+        search_str=search_str,
+        pubdate_to=pubdate_to,
+        pubdate_from=pubdate_from,
+        timedelta_step=timedelta_step,
+        include_fz223=include_fz223,
+        include_fz44=include_fz44,
+        pool_size=pool_size,
+    )
+
     results: list[pd.DataFrame] = list()
     with ThreadPoolExecutor(max_workers=pool_size) as exec:
-        futures.clear()
-        for task in tasks:
-            futures.append(exec.submit(load_csv, task))
+        futures = [exec.submit(load_csv, task) for task in tasks]
+
         for future in as_completed(futures):
             res = future.result()
             if res is None:
@@ -90,6 +113,44 @@ def scrape_zakupki(
         return pd.concat(results)
     else:
         return None
+
+
+def scrape_zakupki_low_ram(
+    search_str: str = "болт",
+    pubdate_to: date = date.today(),
+    pubdate_from: date = date.today() - timedelta(days=365),
+    timedelta_step: timedelta = timedelta(days=30),
+    include_fz44: bool = True,
+    include_fz223: bool = True,
+    pool_size: int = 4,
+) -> list[tmpf._TemporaryFileWrapper] | None:
+    """
+    Equivallent to scrape_zakupki, but returns list of TextIOWrappers which which point to csv files were data was loaded.
+    """
+
+    tasks = _get_load_tasks(
+        search_str=search_str,
+        pubdate_to=pubdate_to,
+        pubdate_from=pubdate_from,
+        timedelta_step=timedelta_step,
+        include_fz223=include_fz223,
+        include_fz44=include_fz44,
+        pool_size=pool_size,
+    )
+
+    results: list[tmpf._TemporaryFileWrapper] = list()
+    with ThreadPoolExecutor(max_workers=pool_size) as exec:
+        futures = [exec.submit(load_csv, task) for task in tasks]
+
+        for future in as_completed(futures):
+            res = future.result()
+            if res is None:
+                continue
+            tmp_f = tmpf.NamedTemporaryFile()
+            res.to_csv(tmp_f.name, sep=";", decimal=",", quotechar='"')
+            results.append(tmp_f)
+
+    return results
 
 
 if __name__ == "__main__":
